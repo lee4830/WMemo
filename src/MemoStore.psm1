@@ -41,13 +41,16 @@ function Initialize-MemoStore {
 
 function Get-DefaultMemoSettings {
     [ordered]@{
-        FontFamily = "Segoe UI"
+        FontFamily = "Malgun Gothic"
         TitleFontSize = 22
         BodyFontSize = 12
         TitleColor = "#111827"
         BodyColor = "#1f2937"
         BackgroundColor = "#ffffff"
         Categories = @((Get-AllCategoryName))
+        LastRestoredAt = ""
+        CloseToTray = $false
+        StartWithWindows = $false
     }
 }
 
@@ -207,6 +210,7 @@ function Search-Memos {
 function Export-MemoFullBackup {
     param(
         [string]$StorePath = (Get-DefaultMemoStorePath),
+        [string]$SettingsPath = (Get-DefaultMemoSettingsPath),
         [string]$DestinationFile
     )
 
@@ -217,6 +221,7 @@ function Export-MemoFullBackup {
         Version = 1
         ExportedAt = (Get-Date).ToUniversalTime().ToString("o")
         Memos = @(Get-Memos -StorePath $StorePath)
+        Settings = Get-MemoSettings -SettingsPath $SettingsPath
     }
     $payload | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $DestinationFile -Encoding UTF8
 }
@@ -224,6 +229,7 @@ function Export-MemoFullBackup {
 function Restore-MemoFullBackup {
     param(
         [string]$StorePath = (Get-DefaultMemoStorePath),
+        [string]$SettingsPath = "",
         [string]$BackupFile
     )
 
@@ -233,6 +239,13 @@ function Restore-MemoFullBackup {
         throw "This is not a supported memo backup file."
     }
     Write-Memos -StorePath $StorePath -Memos @($payload.Memos)
+    if (-not [string]::IsNullOrWhiteSpace($SettingsPath) -and $payload.PSObject.Properties["Settings"] -and $payload.Settings) {
+        $settingsTable = @{}
+        foreach ($property in $payload.Settings.PSObject.Properties) {
+            $settingsTable[$property.Name] = $property.Value
+        }
+        Save-MemoSettings -SettingsPath $SettingsPath -Settings $settingsTable | Out-Null
+    }
 }
 
 function ConvertTo-SafeFileName {
@@ -291,7 +304,16 @@ function Get-MemoSettings {
         $defaults = Get-DefaultMemoSettings
         Save-MemoSettings -SettingsPath $SettingsPath -Settings $defaults | Out-Null
     }
-    return (Get-Content -Raw -LiteralPath $SettingsPath | ConvertFrom-Json)
+    $merged = Get-DefaultMemoSettings
+    $settings = Get-Content -Raw -LiteralPath $SettingsPath | ConvertFrom-Json
+    if ($settings) {
+        foreach ($property in $settings.PSObject.Properties) {
+            if ($null -ne $property.Value) {
+                $merged[$property.Name] = $property.Value
+            }
+        }
+    }
+    return ($merged | ConvertTo-Json -Depth 8 | ConvertFrom-Json)
 }
 
 function Get-MemoCategories {
@@ -389,14 +411,24 @@ function Save-MemoSettings {
         [hashtable]$Settings
     )
 
-    $defaults = Get-DefaultMemoSettings
-    foreach ($key in @($Settings.Keys)) {
-        $defaults[$key] = $Settings[$key]
+    $merged = Get-DefaultMemoSettings
+    if (Test-Path $SettingsPath) {
+        $existing = Get-Content -Raw -LiteralPath $SettingsPath | ConvertFrom-Json
+        if ($existing) {
+            foreach ($property in $existing.PSObject.Properties) {
+                $merged[$property.Name] = $property.Value
+            }
+        }
+    }
+    if ($Settings) {
+        foreach ($key in @($Settings.Keys)) {
+            $merged[$key] = $Settings[$key]
+        }
     }
     $dir = Split-Path -Parent $SettingsPath
     if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    $defaults | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $SettingsPath -Encoding UTF8
-    return ($defaults | ConvertTo-Json -Depth 8 | ConvertFrom-Json)
+    $merged | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $SettingsPath -Encoding UTF8
+    return ($merged | ConvertTo-Json -Depth 8 | ConvertFrom-Json)
 }
 
 Export-ModuleMember -Function @(

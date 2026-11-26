@@ -28,6 +28,19 @@ function Show-AppError {
     [System.Windows.Forms.MessageBox]::Show($Message, "윈도우 메모", "OK", "Error") | Out-Null
 }
 
+function Show-AppInfo {
+    param([string]$Message)
+    [System.Windows.Forms.MessageBox]::Show($Message, "윈도우 메모", "OK", "Information") | Out-Null
+}
+
+function Resolve-FontFamilyName {
+    param([string]$Preferred)
+    $installed = @([System.Drawing.FontFamily]::Families | ForEach-Object { $_.Name })
+    if ($installed -contains $Preferred) { return $Preferred }
+    if ($installed -contains "Malgun Gothic") { return "Malgun Gothic" }
+    return "Microsoft Sans Serif"
+}
+
 function New-Button {
     param([string]$Text, [int]$Width = 76)
     $button = New-Object System.Windows.Forms.Button
@@ -205,7 +218,8 @@ function New-MemoInEditor {
     $titleBox.Text = "제목 없음"
     $bodyBox.Clear()
     $settings = Get-MemoSettings -SettingsPath $script:SettingsPath
-    $bodyBox.Font = New-Object System.Drawing.Font($settings.FontFamily, [single]$settings.BodyFontSize)
+    $fontFamily = Resolve-FontFamilyName $settings.FontFamily
+    $bodyBox.Font = New-Object System.Drawing.Font($fontFamily, [single]$settings.BodyFontSize)
     $bodyBox.ForeColor = ConvertFrom-HexColor $settings.BodyColor
     $bodyBox.BackColor = ConvertFrom-HexColor $settings.BackgroundColor
     $createdValue.Text = "-"
@@ -228,7 +242,7 @@ function Save-CurrentMemo {
         }
         Load-MemoIntoEditor -Memo $memo
         Refresh-MemoList
-        New-MemoInEditor
+        Show-AppInfo "저장했습니다."
     }
     catch {
         Show-AppError $_.Exception.Message
@@ -254,17 +268,31 @@ function Delete-AllMemos {
 
 function Load-SettingsIntoUI {
     $settings = Get-MemoSettings -SettingsPath $script:SettingsPath
-    $defaultFontCombo.Text = $settings.FontFamily
-    $titleSizeDefault.Value = [decimal]$settings.TitleFontSize
-    $bodySizeDefault.Value = [decimal]$settings.BodyFontSize
+    $fontFamily = Resolve-FontFamilyName $settings.FontFamily
+    $titleSize = [decimal]$settings.TitleFontSize
+    if ($titleSize -lt $titleSizeDefault.Minimum) { $titleSize = $titleSizeDefault.Minimum }
+    if ($titleSize -gt $titleSizeDefault.Maximum) { $titleSize = $titleSizeDefault.Maximum }
+    $bodySize = [decimal]$settings.BodyFontSize
+    if ($bodySize -lt $bodySizeDefault.Minimum) { $bodySize = $bodySizeDefault.Minimum }
+    if ($bodySize -gt $bodySizeDefault.Maximum) { $bodySize = $bodySizeDefault.Maximum }
+    $defaultFontCombo.Text = $fontFamily
+    $titleSizeDefault.Value = $titleSize
+    $bodySizeDefault.Value = $bodySize
     $titleColorButton.BackColor = ConvertFrom-HexColor $settings.TitleColor
     $bodyColorButton.BackColor = ConvertFrom-HexColor $settings.BodyColor
     $backgroundColorButton.BackColor = ConvertFrom-HexColor $settings.BackgroundColor
-    $titleBox.Font = New-Object System.Drawing.Font($settings.FontFamily, [single]$settings.TitleFontSize, [System.Drawing.FontStyle]::Bold)
+    $titleBox.Font = New-Object System.Drawing.Font($fontFamily, [single]$titleSize, [System.Drawing.FontStyle]::Bold)
     $titleBox.ForeColor = ConvertFrom-HexColor $settings.TitleColor
-    $bodyBox.Font = New-Object System.Drawing.Font($settings.FontFamily, [single]$settings.BodyFontSize)
+    $bodyBox.Font = New-Object System.Drawing.Font($fontFamily, [single]$bodySize)
     $bodyBox.ForeColor = ConvertFrom-HexColor $settings.BodyColor
     $bodyBox.BackColor = ConvertFrom-HexColor $settings.BackgroundColor
+}
+
+function Refresh-RestoreInfo {
+    if ($null -eq $restoreValue) { return }
+    $settings = Get-MemoSettings -SettingsPath $script:SettingsPath
+    $value = if ($settings.PSObject.Properties["LastRestoredAt"]) { $settings.LastRestoredAt } else { "" }
+    $restoreValue.Text = Format-MemoDateTime $value
 }
 
 function Refresh-CategoryControls {
@@ -385,7 +413,7 @@ function Open-CategoryManager {
 
     & $reload
     $dialog.AcceptButton = $addButton
-    $owner = if ($sideDialog.Visible) { $sideDialog } else { $form }
+    $owner = if ($settingsWindow.Visible) { $settingsWindow } else { $form }
     $dialog.ShowDialog($owner) | Out-Null
 }
 
@@ -415,13 +443,34 @@ function Choose-ButtonColor {
     }
 }
 
+function Show-UtilityWindow {
+    param([System.Windows.Forms.Form]$Window)
+    if (-not $Window.Visible) {
+        $Window.Show($form)
+    }
+    $Window.BringToFront()
+}
+
+function Open-InfoWindow {
+    Show-UtilityWindow $infoWindow
+}
+
+function Open-BackupWindow {
+    Refresh-RestoreInfo
+    Show-UtilityWindow $backupWindow
+}
+
+function Open-SettingsWindow {
+    Show-UtilityWindow $settingsWindow
+}
+
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "윈도우 메모"
 $form.Width = 1440
 $form.Height = 820
 $form.MinimumSize = New-Object System.Drawing.Size(1200, 680)
 $form.StartPosition = "CenterScreen"
-$form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+$form.Font = New-Object System.Drawing.Font((Resolve-FontFamilyName "Malgun Gothic"), 9)
 
 $script:CurrentMemoId = $null
 $script:SearchHintActive = $false
@@ -515,29 +564,35 @@ $titleBox = New-Object System.Windows.Forms.TextBox
 $titleBox.Dock = "Fill"
 $metaPanel = New-Object System.Windows.Forms.TableLayoutPanel
 $metaPanel.Dock = "Fill"
-$metaPanel.ColumnCount = 4
+$metaPanel.ColumnCount = 1
 $metaPanel.RowCount = 1
 $metaPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle("Percent", 100))) | Out-Null
-$metaPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle("Absolute", 70))) | Out-Null
-$metaPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle("Absolute", 180))) | Out-Null
-$metaPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle("Absolute", 8))) | Out-Null
 $metaLabel = New-Object System.Windows.Forms.Label
 $metaLabel.Dock = "Fill"
 $metaLabel.TextAlign = "MiddleLeft"
 $metaLabel.ForeColor = [System.Drawing.Color]::DimGray
 $metaLabel.Text = "등록: -    수정: -"
-$categoryLabel = New-Object System.Windows.Forms.Label
-$categoryLabel.Dock = "Fill"
-$categoryLabel.TextAlign = "MiddleRight"
-$categoryLabel.Text = "카테고리"
 $categoryCombo = New-Object System.Windows.Forms.ComboBox
 $categoryCombo.Dock = "Fill"
 $categoryCombo.DropDownStyle = "DropDownList"
 $metaPanel.Controls.Add($metaLabel, 0, 0)
-$metaPanel.Controls.Add($categoryLabel, 1, 0)
-$metaPanel.Controls.Add($categoryCombo, 2, 0)
 $centerPanel.Controls.Add($metaPanel, 0, 1)
-$centerPanel.Controls.Add($titleBox, 0, 2)
+
+$titlePanel = New-Object System.Windows.Forms.TableLayoutPanel
+$titlePanel.Dock = "Fill"
+$titlePanel.ColumnCount = 3
+$titlePanel.RowCount = 1
+$titlePanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle("Absolute", 190))) | Out-Null
+$titlePanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle("Absolute", 24))) | Out-Null
+$titlePanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle("Percent", 100))) | Out-Null
+$titleDividerLabel = New-Object System.Windows.Forms.Label
+$titleDividerLabel.Dock = "Fill"
+$titleDividerLabel.TextAlign = "MiddleCenter"
+$titleDividerLabel.Text = "|"
+$titlePanel.Controls.Add($categoryCombo, 0, 0)
+$titlePanel.Controls.Add($titleDividerLabel, 1, 0)
+$titlePanel.Controls.Add($titleBox, 2, 0)
+$centerPanel.Controls.Add($titlePanel, 0, 2)
 
 $formatBar = New-Object System.Windows.Forms.FlowLayoutPanel
 $formatBar.Dock = "Fill"
@@ -550,7 +605,7 @@ $fontCombo = New-Object System.Windows.Forms.ComboBox
 $fontCombo.Width = 160
 $fontCombo.DropDownStyle = "DropDownList"
 foreach ($family in [System.Drawing.FontFamily]::Families) { [void]$fontCombo.Items.Add($family.Name) }
-$fontCombo.Text = "Segoe UI"
+$fontCombo.Text = Resolve-FontFamilyName "Malgun Gothic"
 $sizeBox = New-Object System.Windows.Forms.NumericUpDown
 $sizeBox.Width = 58
 $sizeBox.Minimum = 8
@@ -566,34 +621,32 @@ $bodyBox.Dock = "Fill"
 $bodyBox.BorderStyle = "FixedSingle"
 $bodyBox.AcceptsTab = $true
 $bodyBox.DetectUrls = $true
+$bodyBox.WordWrap = $true
+try { $bodyBox.LanguageOption = [System.Windows.Forms.RichTextBoxLanguageOptions]::DualFont } catch { }
 $centerPanel.Controls.Add($bodyBox, 0, 4)
 
-$tabControl = New-Object System.Windows.Forms.TabControl
-$tabControl.Dock = "Fill"
+function New-UtilityWindow {
+    param([string]$Title, [int]$Width = 520, [int]$Height = 520)
+    $window = New-Object System.Windows.Forms.Form
+    $window.Text = $Title
+    $window.Width = $Width
+    $window.Height = $Height
+    $window.MinimumSize = New-Object System.Drawing.Size(460, 420)
+    $window.StartPosition = "CenterParent"
+    $window.Font = $form.Font
+    $window.Add_FormClosing({
+        param($sender, $eventArgs)
+        if ($eventArgs.CloseReason -eq [System.Windows.Forms.CloseReason]::UserClosing) {
+            $eventArgs.Cancel = $true
+            $sender.Hide()
+        }
+    })
+    return $window
+}
 
-$infoTab = New-Object System.Windows.Forms.TabPage
-$infoTab.Text = "정보"
-$backupTab = New-Object System.Windows.Forms.TabPage
-$backupTab.Text = "백업"
-$settingsTab = New-Object System.Windows.Forms.TabPage
-$settingsTab.Text = "설정"
-$tabControl.TabPages.AddRange(@($infoTab, $backupTab, $settingsTab))
-
-$sideDialog = New-Object System.Windows.Forms.Form
-$sideDialog.Text = "정보 / 백업 / 설정"
-$sideDialog.Width = 520
-$sideDialog.Height = 520
-$sideDialog.MinimumSize = New-Object System.Drawing.Size(460, 420)
-$sideDialog.StartPosition = "CenterParent"
-$sideDialog.Font = $form.Font
-$sideDialog.Controls.Add($tabControl)
-$sideDialog.Add_FormClosing({
-    param($sender, $eventArgs)
-    if ($eventArgs.CloseReason -eq [System.Windows.Forms.CloseReason]::UserClosing) {
-        $eventArgs.Cancel = $true
-        $sideDialog.Hide()
-    }
-})
+$infoWindow = New-UtilityWindow "정보"
+$backupWindow = New-UtilityWindow "백업"
+$settingsWindow = New-UtilityWindow "설정"
 
 $infoPanel = New-Object System.Windows.Forms.TableLayoutPanel
 $infoPanel.Dock = "Top"
@@ -605,7 +658,7 @@ $infoPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle("Absolu
 $infoPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle("Percent", 100))) | Out-Null
 $infoPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle("Absolute", 52))) | Out-Null
 $infoPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle("Absolute", 52))) | Out-Null
-$infoTab.Controls.Add($infoPanel)
+$infoWindow.Controls.Add($infoPanel)
 $createdLabel = New-Object System.Windows.Forms.Label
 $createdLabel.Text = "등록 시간"
 $createdLabel.Dock = "Fill"
@@ -634,7 +687,25 @@ $backupPanel.Dock = "Fill"
 $backupPanel.Padding = New-Object System.Windows.Forms.Padding(12)
 $backupPanel.FlowDirection = "TopDown"
 $backupPanel.WrapContents = $false
-$backupTab.Controls.Add($backupPanel)
+$backupWindow.Controls.Add($backupPanel)
+$restoreInfoPanel = New-Object System.Windows.Forms.TableLayoutPanel
+$restoreInfoPanel.Width = 330
+$restoreInfoPanel.Height = 34
+$restoreInfoPanel.ColumnCount = 2
+$restoreInfoPanel.RowCount = 1
+$restoreInfoPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle("Absolute", 90))) | Out-Null
+$restoreInfoPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle("Percent", 100))) | Out-Null
+$restoreLabel = New-Object System.Windows.Forms.Label
+$restoreLabel.Dock = "Fill"
+$restoreLabel.TextAlign = "MiddleLeft"
+$restoreLabel.Text = "마지막 복구"
+$restoreValue = New-Object System.Windows.Forms.Label
+$restoreValue.Dock = "Fill"
+$restoreValue.TextAlign = "MiddleLeft"
+$restoreValue.AutoEllipsis = $true
+$restoreValue.Text = "-"
+$restoreInfoPanel.Controls.Add($restoreLabel, 0, 0)
+$restoreInfoPanel.Controls.Add($restoreValue, 1, 0)
 $fullBackupButton = New-Button "전체 백업 (.memo-backup.json)" 320
 $txtBackupButton = New-Button "읽을 수 있는 TXT 백업" 320
 $restoreButton = New-Button "백업에서 복구" 320
@@ -642,7 +713,7 @@ $backupHint = New-Object System.Windows.Forms.Label
 $backupHint.Width = 330
 $backupHint.Height = 110
 $backupHint.Text = "전체 백업은 서식과 날짜를 보존합니다.`r`nTXT 백업은 사람이 읽을 수 있는 텍스트 파일을 만듭니다."
-$backupPanel.Controls.AddRange(@($fullBackupButton, $txtBackupButton, $restoreButton, $backupHint))
+$backupPanel.Controls.AddRange(@($restoreInfoPanel, $fullBackupButton, $txtBackupButton, $restoreButton, $backupHint))
 
 $settingsPanel = New-Object System.Windows.Forms.TableLayoutPanel
 $settingsPanel.Dock = "Top"
@@ -655,7 +726,7 @@ $settingsPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle("Pe
 for ($row = 0; $row -lt 9; $row++) {
     $settingsPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle("Absolute", 38))) | Out-Null
 }
-$settingsTab.Controls.Add($settingsPanel)
+$settingsWindow.Controls.Add($settingsPanel)
 
 $defaultFontCombo = New-Object System.Windows.Forms.ComboBox
 $defaultFontCombo.DropDownStyle = "DropDownList"
@@ -712,21 +783,9 @@ $listView.Add_SelectedIndexChanged({ Load-SelectedMemo })
 $newButton.Add_Click({ New-MemoInEditor })
 $saveButton.Add_Click({ Save-CurrentMemo })
 $deleteButton.Add_Click({ Delete-CurrentMemo })
-$infoButton.Add_Click({
-    $tabControl.SelectedTab = $infoTab
-    $sideDialog.Show($form)
-    $sideDialog.BringToFront()
-})
-$backupButton.Add_Click({
-    $tabControl.SelectedTab = $backupTab
-    $sideDialog.Show($form)
-    $sideDialog.BringToFront()
-})
-$settingsButton.Add_Click({
-    $tabControl.SelectedTab = $settingsTab
-    $sideDialog.Show($form)
-    $sideDialog.BringToFront()
-})
+$infoButton.Add_Click({ Open-InfoWindow })
+$backupButton.Add_Click({ Open-BackupWindow })
+$settingsButton.Add_Click({ Open-SettingsWindow })
 
 $boldButton.Add_Click({ Apply-SelectionFontStyle ([System.Drawing.FontStyle]::Bold) })
 $italicButton.Add_Click({ Apply-SelectionFontStyle ([System.Drawing.FontStyle]::Italic) })
@@ -748,7 +807,7 @@ $fullBackupButton.Add_Click({
         $dialog.Filter = "Memo backup (*.memo-backup.json)|*.memo-backup.json|JSON files (*.json)|*.json"
         $dialog.FileName = "windows-memo-backup.memo-backup.json"
         if ($dialog.ShowDialog() -eq "OK") {
-            Export-MemoFullBackup -StorePath $script:StorePath -DestinationFile $dialog.FileName
+            Export-MemoFullBackup -StorePath $script:StorePath -SettingsPath $script:SettingsPath -DestinationFile $dialog.FileName
             [System.Windows.Forms.MessageBox]::Show("전체 백업을 저장했습니다.", "윈도우 메모", "OK", "Information") | Out-Null
         }
     }
@@ -774,9 +833,16 @@ $restoreButton.Add_Click({
         if ($dialog.ShowDialog() -eq "OK") {
             $answer = [System.Windows.Forms.MessageBox]::Show("복구하면 현재 메모가 백업 내용으로 바뀝니다. 계속할까요?", "윈도우 메모", "YesNo", "Warning")
             if ($answer -eq "Yes") {
-                Restore-MemoFullBackup -StorePath $script:StorePath -BackupFile $dialog.FileName
+                Restore-MemoFullBackup -StorePath $script:StorePath -SettingsPath $script:SettingsPath -BackupFile $dialog.FileName
+                Save-MemoSettings -SettingsPath $script:SettingsPath -Settings @{
+                    LastRestoredAt = (Get-Date).ToUniversalTime().ToString("o")
+                } | Out-Null
                 New-MemoInEditor
+                Load-SettingsIntoUI
+                Refresh-CategoryControls
+                Refresh-RestoreInfo
                 Refresh-MemoList
+                Show-AppInfo "백업을 복구했습니다."
             }
         }
     }

@@ -89,6 +89,9 @@ try {
     }
     Assert-Equal "Segoe UI" $settings.FontFamily "settings save font family"
     Assert-Equal 22 $settings.TitleFontSize "settings save title size"
+    Assert-True ($null -ne $settings.PSObject.Properties["LastRestoredAt"]) "settings include restore timestamp field"
+    Assert-True ($null -ne $settings.PSObject.Properties["CloseToTray"]) "settings include close to tray field"
+    Assert-True ($null -ne $settings.PSObject.Properties["StartWithWindows"]) "settings include startup field"
 
     $singleStorePath = Join-Path $tempRoot "single.json"
     Initialize-MemoStore -StorePath $singleStorePath -SettingsPath $settingsPath
@@ -114,6 +117,10 @@ try {
     Add-MemoCategory -SettingsPath $categorySettingsPath -Name "Work" | Out-Null
     $koreanCategory = [string]::Concat(@([char]0xC77C, [char]0xC0C1))
     Add-MemoCategory -SettingsPath $categorySettingsPath -Name $koreanCategory | Out-Null
+    Save-MemoSettings -SettingsPath $categorySettingsPath -Settings @{
+        FontFamily = "Malgun Gothic"
+        BodyFontSize = 15
+    } | Out-Null
     $categories = @(Get-MemoCategories -SettingsPath $categorySettingsPath)
     Assert-True ($categories -contains "Work") "added category is saved"
     Assert-True ($categories -contains $koreanCategory) "added Korean category is saved"
@@ -140,8 +147,26 @@ try {
     $afterAllDeleteAttempt = @(Get-MemoCategories -SettingsPath $categorySettingsPath)
     Assert-True ($afterAllDeleteAttempt -contains $allCategory) "all category cannot be deleted"
 
+    $categoryBackupPath = Join-Path $tempRoot "category-backup.memo-backup.json"
+    Export-MemoFullBackup -StorePath $categoryStorePath -SettingsPath $categorySettingsPath -DestinationFile $categoryBackupPath
+    $categoryBackup = Get-Content -Raw -LiteralPath $categoryBackupPath | ConvertFrom-Json
+    Assert-True ($categoryBackup.PSObject.Properties["Settings"] -ne $null) "full backup includes settings"
+    Assert-True (@($categoryBackup.Settings.Categories) -contains $koreanCategory) "full backup includes saved categories"
+
+    $restoredCategorySettingsPath = Join-Path $tempRoot "restored-category-settings.json"
+    $restoredCategoryStorePath = Join-Path $tempRoot "restored-category-store.json"
+    Initialize-MemoStore -StorePath $restoredCategoryStorePath -SettingsPath $restoredCategorySettingsPath
+    Restore-MemoFullBackup -StorePath $restoredCategoryStorePath -SettingsPath $restoredCategorySettingsPath -BackupFile $categoryBackupPath
+    $restoredCategories = @(Get-MemoCategories -SettingsPath $restoredCategorySettingsPath)
+    Assert-True ($restoredCategories -contains $koreanCategory) "restore preserves backed up categories"
+
     Write-Host "All MemoStore tests passed."
 }
 finally {
-    Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    try {
+        Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction Stop
+    }
+    catch {
+        Write-Warning "Could not remove temporary test directory: $tempRoot"
+    }
 }

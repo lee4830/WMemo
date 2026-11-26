@@ -2,6 +2,8 @@ $ErrorActionPreference = "Stop"
 
 $scriptPath = Join-Path (Split-Path -Parent $PSScriptRoot) "src/WindowsMemo.ps1"
 $raw = Get-Content -Raw -LiteralPath $scriptPath -Encoding UTF8
+$launcherPath = Join-Path (Split-Path -Parent $PSScriptRoot) "Run-WindowsMemo.vbs"
+$launcherRaw = Get-Content -Raw -LiteralPath $launcherPath -Encoding UTF8
 
 function K {
     param([int[]]$CodePoints)
@@ -22,6 +24,13 @@ function Assert-DoesNotContainText {
     }
 }
 
+function Assert-LauncherContainsText {
+    param([string]$Needle)
+    if (-not $launcherRaw.Contains($Needle)) {
+        throw "Assertion failed: Run-WindowsMemo.vbs should contain '$Needle'."
+    }
+}
+
 Assert-ContainsText (K @(0xC708, 0xB3C4, 0xC6B0, 0x20, 0xBA54, 0xBAA8))
 Assert-ContainsText (K @(0xC0C8, 0x20, 0xBA54, 0xBAA8))
 Assert-ContainsText (K @(0xC800, 0xC7A5))
@@ -32,9 +41,13 @@ Assert-ContainsText (K @(0xC124, 0xC815))
 Assert-ContainsText ("yyyy" + (K @(0xB144)) + " MM" + (K @(0xC6D4)) + " dd" + (K @(0xC77C)) + " HH" + (K @(0xC2DC)) + " mm" + (K @(0xBD84)))
 Assert-ContainsText (K @(0xC804, 0xCCB4, 0x20, 0xBC31, 0xC5C5))
 Assert-ContainsText ((K @(0xC77D, 0xC744, 0x20, 0xC218, 0x20, 0xC788, 0xB294)) + " TXT " + (K @(0xBC31, 0xC5C5)))
-Assert-ContainsText ((K @(0xC815, 0xBCF4)) + " / " + (K @(0xBC31, 0xC5C5)) + " / " + (K @(0xC124, 0xC815)))
 Assert-ContainsText "CloseReason"
 Assert-ContainsText "UserClosing"
+Assert-ContainsText "Open-InfoWindow"
+Assert-ContainsText "Open-BackupWindow"
+Assert-ContainsText "Open-SettingsWindow"
+Assert-ContainsText '$restoreValue'
+Assert-ContainsText 'LastRestoredAt'
 Assert-ContainsText (K @(0xC804, 0xCCB4, 0x20, 0xBA54, 0xBAA8, 0x20, 0xC0AD, 0xC81C))
 Assert-ContainsText "Clear-Memos"
 Assert-ContainsText (K @(0xC81C, 0xBAA9, 0x20, 0xAC00, 0xB098, 0xB2E4, 0x2F, 0x41, 0x42, 0x43, 0xC21C))
@@ -54,7 +67,13 @@ Assert-ContainsText '$statusLabel'
 Assert-ContainsText '$deleteAllPanel'
 Assert-ContainsText 'SetColumnSpan'
 Assert-ContainsText '$categoryNameBox'
+Assert-ContainsText '$titlePanel'
+Assert-ContainsText '$titleDividerLabel'
+Assert-LauncherContainsText 'WindowStyle Hidden'
+Assert-LauncherContainsText 'shell.Run command, 0, False'
 Assert-DoesNotContainText '$input.Text'
+Assert-DoesNotContainText '$tabControl'
+Assert-DoesNotContainText 'TabPage'
 Assert-DoesNotContainText "DateTimePicker"
 
 Write-Host "WindowsMemo Korean UI text tests passed."
